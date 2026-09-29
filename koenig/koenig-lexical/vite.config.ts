@@ -20,7 +20,10 @@ export default (function viteConfig({mode}) {
     process.env = {...process.env, ...env};
 
     const plugins = [
-        svgr(),
+        // Match `?react` SVG imports with a RegExp: svgr's default minimatch
+        // pattern never matches Windows module IDs, which use backslash
+        // separators, so the imports would survive into the lib output.
+        svgr({include: /\.svg\?react$/}),
         react(),
         mdx(),
         // Convert CJS require("react")/require("react-dom") calls inside

@@ -1,0 +1,53 @@
+# Windows-only development override.
+#
+# Usage (Git Bash; run all Ghost commands from Git Bash on Windows):
+#   export DEV_COMPOSE_FILES='-f compose.dev.windows.yaml'
+#   pnpm dev
+#
+# Why: pnpm on Windows links package node_modules with junctions that point
+# at absolute Windows paths. Those links are dead inside the Linux dev
+# container, and a dead node_modules entry makes Node ESM resolution fail
+# instead of continuing up to the image root store.
+# Masking each package node_modules with an anonymous volume exposes the
+# Linux symlinks baked into the dev image instead.
+#
+# docker compose down removes the anonymous volumes, so dependency changes
+# from pnpm install apply on the next up.
+services:
+  ghost-dev:
+    volumes:
+      - /home/ghost/configs/eslint-react/node_modules
+      - /home/ghost/configs/eslint/node_modules
+      - /home/ghost/configs/typescript/node_modules
+      - /home/ghost/configs/vite-public-app/node_modules
+      - /home/ghost/configs/vitest/node_modules
+      - /home/ghost/ghost/core/node_modules
+      - /home/ghost/koenig/kg-card-factory/node_modules
+      - /home/ghost/koenig/kg-clean-basic-html/node_modules
+      - /home/ghost/koenig/kg-converters/node_modules
+      - /home/ghost/koenig/kg-default-cards/node_modules
+      - /home/ghost/koenig/kg-default-nodes/node_modules
+      - /home/ghost/koenig/kg-default-transforms/node_modules
+      - /home/ghost/koenig/kg-html-to-lexical/node_modules
+      - /home/ghost/koenig/kg-lexical-html-renderer/node_modules
+      - /home/ghost/koenig/kg-markdown-html-renderer/node_modules
+      - /home/ghost/koenig/kg-simplemde/node_modules
+      - /home/ghost/koenig/kg-unsplash-selector/node_modules
+      - /home/ghost/koenig/kg-utils/node_modules
+      - /home/ghost/koenig/koenig-lexical/node_modules
+      - /home/ghost/packages/adapters/cache-base/node_modules
+      - /home/ghost/packages/adapters/jobs-base/node_modules
+      - /home/ghost/packages/adapters/redirects-base/node_modules
+      - /home/ghost/packages/adapters/route-settings-base/node_modules
+      - /home/ghost/packages/adapters/scheduling-base/node_modules
+      - /home/ghost/packages/adapters/sso-base/node_modules
+      - /home/ghost/packages/adapters/storage-base/node_modules
+      - /home/ghost/packages/admin-api-schema/node_modules
+      - /home/ghost/packages/api-framework/node_modules
+      - /home/ghost/packages/checkout/node_modules
+      - /home/ghost/packages/i18n/node_modules
+      - /home/ghost/packages/limit-service/node_modules
+      - /home/ghost/packages/metafield-types/node_modules
+      - /home/ghost/packages/nql-string/node_modules
+      - /home/ghost/packages/parse-email-address/node_modules
+      - /home/ghost/packages/testing/test-data/node_modules

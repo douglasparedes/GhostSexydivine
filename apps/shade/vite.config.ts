@@ -9,7 +9,10 @@ import { defineConfig } from 'vitest/config';
 export default (function viteConfig() {
   return defineConfig({
     logLevel: process.env.CI ? 'info' : 'warn',
-    plugins: [svgr(), react()],
+    // Match `?react` SVG imports with a RegExp: svgr's default minimatch
+    // pattern never matches Windows module IDs, which use backslash
+    // separators, so the imports would survive into the lib output.
+    plugins: [svgr({ include: /\.svg\?react$/ }), react()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
@@ -28,14 +31,18 @@ export default (function viteConfig() {
       outDir: 'es',
       lib: {
         formats: ['es'],
-        entry: globSync(resolve(__dirname, 'src/**/*.{ts,tsx}')).reduce(
+        // Glob patterns must use forward slashes: with Windows backslash
+        // separators globSync matches nothing, leaving Rolldown with no
+        // entrypoint (`You must supply options.input`).
+        entry: globSync(resolve(__dirname, 'src/**/*.{ts,tsx}').replace(/\\/g, '/')).reduce(
           (entries, libpath) => {
             if (libpath.includes('.stories.') || libpath.endsWith('.d.ts')) {
               return entries;
             }
 
             const outPath = libpath
-              .replace(resolve(__dirname, 'src') + '/', '')
+              .replace(/\\/g, '/')
+              .replace(resolve(__dirname, 'src').replace(/\\/g, '/') + '/', '')
               .replace(/\.(ts|tsx)$/, '');
             entries[outPath] = libpath;
             return entries;
@@ -48,19 +55,26 @@ export default (function viteConfig() {
       },
       rollupOptions: {
         external: (source) => {
-          if (source.startsWith('@/')) {
+          // Rolldown passes resolved module IDs with forward slashes even
+          // on Windows, so normalize before comparing against __dirname —
+          // otherwise every in-repo import is treated as external and left
+          // raw in the lib output.
+          const normalizedSource = source.replace(/\\/g, '/');
+          const normalizedDir = __dirname.replace(/\\/g, '/');
+
+          if (normalizedSource.startsWith('@/')) {
             return false;
           }
 
-          if (source.startsWith('.')) {
+          if (normalizedSource.startsWith('.')) {
             return false;
           }
 
-          if (source.includes('node_modules')) {
+          if (normalizedSource.includes('node_modules')) {
             return true;
           }
 
-          return !source.includes(__dirname);
+          return !normalizedSource.includes(normalizedDir);
         },
       },
     },

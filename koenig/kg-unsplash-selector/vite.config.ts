@@ -17,5 +17,8 @@ export default defineConfig({
     sourcemap: true, // Generates source maps for debugging.
     emptyOutDir: true, // Clears the output directory before building.
   },
-  plugins: [svgr(), react(), dts()], // Uses the 'vite-plugin-dts' plugin for generating TypeScript declaration files (d.ts).
+  // Match `?react` SVG imports with a RegExp: svgr's default minimatch
+  // pattern never matches Windows module IDs, which use backslash
+  // separators, so the imports would survive into the lib output.
+  plugins: [svgr({ include: /\.svg\?react$/ }), react(), dts()], // Uses the 'vite-plugin-dts' plugin for generating TypeScript declaration files (d.ts).
 });
