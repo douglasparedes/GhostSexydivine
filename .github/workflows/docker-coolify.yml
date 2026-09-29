@@ -1,8 +1,11 @@
 # Builds the custom Ghost production image (server + admin) for Coolify.
 #
-# Flow: install workspace → build admin (produces ghost/core/core/built/admin
-# and ghost/core/core/built/embed-renderer in the working tree) → build
-# Dockerfile.production target `full` → push to GHCR.
+# Two jobs, mirroring upstream CI's split: admin is built in a workspace with
+# dependencies installed, while the image is built from a FRESH checkout that
+# never sees `pnpm install`. That keeps node_modules symlinks (whose targets
+# are dockerignored) out of the docker build context — COPYing a tree that
+# contains them fails with "failed to calculate checksum ... not found".
+# Only the ghost/core/core/built/{admin,embed-renderer} tarball crosses jobs.
 # Coolify deploys the pushed image via compose.coolify.yaml.
 #
 # Runs on pushes to main and manually. Fork-safe: no TryGhost secrets needed.
@@ -18,11 +21,45 @@ on:
 env:
   NODE_VERSION: 22.23.3
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/ghost
 
 jobs:
+  build-admin:
+    name: Build admin bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          submodules: true
+
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build admin
+        # Produces apps/admin/dist, ghost/core/core/built/admin
+        # (asset-delivery) and ghost/core/core/built/embed-renderer
+        # (separate-origin previews).
+        run: pnpm nx run @tryghost/admin:build
+
+      - name: Pack admin build
+        # Outside the repo: a stray tarball in the context would bust the
+        # deploy-stage COPY cache (same reason CI keeps it in RUNNER_TEMP).
+        # Sourcemaps are excluded to match the shipped image contents.
+        run: tar --exclude='*.map' -czf "$RUNNER_TEMP/admin-build.tar.gz" -C ghost/core/core/built admin embed-renderer
+
+      - name: Upload admin build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-build
+          path: ${{ runner.temp }}/admin-build.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
   build-and-push:
     name: Build and push full image
+    needs: build-admin
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -35,16 +72,19 @@ jobs:
           # The deploy stage packs content/themes/casper|source (submodules).
           submodules: true
 
-      - uses: ./.github/actions/setup-node-pnpm
+      - name: Download admin build
+        uses: actions/download-artifact@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          name: admin-build
+          path: ${{ runner.temp }}/admin-artifact
 
-      - name: Build admin
-        # Produces apps/admin/dist, ghost/core/core/built/admin
-        # (asset-delivery) and ghost/core/core/built/embed-renderer
-        # (separate-origin previews), which the `full` image stage COPYs
-        # from the build context.
-        run: pnpm nx run @tryghost/admin:build
+      - name: Extract admin build into context
+        # The `full` image stage COPYs admin and the embed renderer from
+        # these paths; the deploy stage excludes core/built, so this is the
+        # only context change versus a `core` build.
+        run: |
+          mkdir -p ghost/core/core/built
+          tar -xzf "${RUNNER_TEMP}/admin-artifact/admin-build.tar.gz" -C ghost/core/core/built
 
       - name: Determine build version
         # Baked into the image as GHOST_BUILD_VERSION (server-reported version).
@@ -63,7 +103,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/ghost
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=short
