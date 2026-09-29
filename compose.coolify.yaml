@@ -1,0 +1,100 @@
+# Coolify deployment for a custom Ghost source build.
+#
+# Deploy as a Coolify "Docker Compose" resource pointing at this file.
+# Coolify's built-in reverse proxy handles domains and TLS — there is
+# intentionally no Caddy/Traefik service here.
+#
+# Image: built and pushed by .github/workflows/docker-coolify.yml
+# (Dockerfile.production, target `full`) — do NOT point Coolify's builder
+# at this repo instead; the admin bundle is injected at CI time.
+#
+# First deploy: Docker copies the image's /home/ghost/content into the empty
+# `ghost-content` volume automatically, so uploads/themes persist across
+# redeploys. Never delete the volumes unless you want a factory reset
+# (Ghost migrates the MySQL schema itself on boot).
+#
+# Required Coolify environment variables (set in the Coolify UI, DB password
+# values marked sensitive — the two MYSQL_* pairs below must match):
+#   GHOST_URL=https://your-domain.com
+#   MYSQL_ROOT_PASSWORD=<random>
+#   MYSQL_DATABASE=ghost_prod
+#   MYSQL_USER=ghost
+#   MYSQL_PASSWORD=<random, different from root>
+#   MAIL_HOST, MAIL_PORT, MAIL_USER, MAIL_PASS, MAIL_FROM
+#
+# Newsletters/bulk mail always need Mailgun and are configured later in
+# Admin → Settings → Email newsletter (stored in the DB, not here).
+
+services:
+  ghost:
+    # Published by .github/workflows/docker-coolify.yml on every main push.
+    image: ghcr.io/douglasparedes/ghost:latest
+    # Coolify routes its domain to this port; do not publish ports here.
+    expose:
+      - '2368'
+    environment:
+      # Public site URL. Must be https and exactly match the Coolify domain.
+      url: ${GHOST_URL:-http://localhost:2368}
+      server__host: 0.0.0.0
+      server__port: 2368
+      database__client: mysql2
+      database__connection__host: mysql
+      database__connection__user: ${MYSQL_USER:-ghost}
+      database__connection__password: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in Coolify}
+      database__connection__database: ${MYSQL_DATABASE:-ghost_prod}
+      # Transactional email (owner setup, invites, member auth). Required.
+      mail__transport: SMTP
+      mail__options__host: ${MAIL_HOST:?Set MAIL_HOST in Coolify}
+      mail__options__port: ${MAIL_PORT:-587}
+      mail__options__auth__user: ${MAIL_USER:-}
+      mail__options__auth__pass: ${MAIL_PASS:-}
+      mail__from: ${MAIL_FROM:-}
+    volumes:
+      - ghost-content:/home/ghost/content
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:2368',{redirect:'manual'}).then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))",
+        ]
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.4
+    command: --innodb-buffer-pool-size=1G --innodb-flush-log-at-trx_commit=1 --log-error-verbosity=1
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in Coolify}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ghost_prod}
+      MYSQL_USER: ${MYSQL_USER:-ghost}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in Coolify}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'mysql',
+          '-h',
+          '127.0.0.1',
+          '-uroot',
+          '-p${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in Coolify}',
+          '-e',
+          'SELECT 1',
+        ]
+      interval: 5s
+      retries: 60
+      timeout: 5s
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  ghost-content:
+  mysql-data:
