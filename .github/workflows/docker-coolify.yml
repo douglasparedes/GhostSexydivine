@@ -114,6 +114,12 @@ jobs:
           context: .
           file: Dockerfile.production
           target: full
+          # Multi-arch so ARM64 hosts (e.g. Graviton/Ampere VPS) run native
+          # code instead of QEMU-emulated amd64. The arm64 RUN steps execute
+          # under emulation — slower CI build, correct per-arch output
+          # (sharp/better-sqlite3 resolve per-arch prebuilds, guarded by the
+          # in-Dockerfile smoke check).
+          platforms: linux/amd64,linux/arm64
           build-args: |
             NODE_VERSION=${{ env.NODE_VERSION }}
             GHOST_BUILD_VERSION=${{ env.GHOST_BUILD_VERSION }}

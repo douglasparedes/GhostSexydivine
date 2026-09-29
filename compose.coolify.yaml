@@ -64,7 +64,9 @@ services:
         ]
       timeout: 5s
       retries: 10
-      start_period: 30s
+      # Generous first-boot window: schema + fixture migration on a fresh
+      # database can take minutes on small hosts.
+      start_period: 120s
     restart: unless-stopped
 
   mysql:
