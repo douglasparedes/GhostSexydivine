@@ -34,8 +34,10 @@
     <button data-audit="pages">Audit pages</button>
     <input id="slug-input" placeholder="post slug for single audit">
     <button id="btn-audit-slug">Audit slug</button>
+    <button id="btn-drafts">Draft watch</button>
     <label class="muted">Model <select id="model-select"></select></label>
   </div>
+  <div id="ai-banner" class="card banner hidden"></div>
   <main>
     <section id="chat-panel" class="card">
       <div id="messages"></div>
@@ -53,6 +55,10 @@
       <div id="list-body"></div>
     </section>
   </main>
+  <footer class="card muted">
+    <span>Auditing a draft in Ghost Admin? Drag this to your bookmarks bar, then click it while editing: </span>
+    <a id="bookmarklet-link" href="#">Audit in Ghost</a>
+  </footer>
 </div>
 <script src="/app.js"></script>
 </body>

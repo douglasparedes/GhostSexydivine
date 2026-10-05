@@ -99,6 +99,17 @@ export async function listPages(status = 'all') {
   return browseAll('pages', filter);
 }
 
+export async function listDrafts() {
+  const [posts, pages] = await Promise.all([
+    browseAll('posts', 'status:draft'),
+    browseAll('pages', 'status:draft'),
+  ]);
+  return [
+    ...posts.map((resource) => ({ resourceType: 'posts', resource })),
+    ...pages.map((resource) => ({ resourceType: 'pages', resource })),
+  ];
+}
+
 export async function readResource(resourceType, id) {
   const api = getClient();
   const resource = resourceType === 'pages' ? api.pages : api.posts;

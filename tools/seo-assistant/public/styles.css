@@ -230,3 +230,46 @@ td {
 .fix .new {
   color: var(--good);
 }
+button.linklike {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0.15rem 0;
+  text-align: left;
+  white-space: normal;
+}
+footer.card {
+  font-size: 0.9rem;
+}
+
+@media print {
+  header,
+  #toolbar,
+  #ai-banner,
+  #chat-panel,
+  #list-panel,
+  footer.card,
+  button {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+    color: #000;
+  }
+  main {
+    display: block;
+  }
+  #report-panel {
+    display: block !important;
+    border: none;
+    margin: 0;
+  }
+  .card {
+    border: none;
+    margin: 0;
+  }
+  .fix {
+    break-inside: avoid;
+  }
+}

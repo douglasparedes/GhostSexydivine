@@ -66,6 +66,41 @@ function renderReport(audit) {
   const listPanel = document.getElementById('list-panel');
   listPanel.classList.add('hidden');
   panel.classList.remove('hidden');
+
+  const toolbar = document.createElement('div');
+  const pdfButton = document.createElement('button');
+  pdfButton.textContent = 'Export PDF';
+  pdfButton.addEventListener('click', () => window.print());
+  toolbar.appendChild(pdfButton);
+  const aiStates = new Set(
+    (audit.items ?? []).map((item) =>
+      item.ai_summary
+        ? item.ai_summary.startsWith('AI analysis failed')
+          ? 'failed'
+          : 'enhanced'
+        : 'rules-only',
+    ),
+  );
+  const aiNote = document.createElement('p');
+  aiNote.className = 'muted';
+  if (aiStates.size === 0 || (aiStates.size === 1 && aiStates.has('rules-only'))) {
+    aiNote.textContent =
+      'Rules-only report (no AI). Set GEMINI_API_KEY for summaries and fix drafts.';
+  } else if (aiStates.has('failed')) {
+    aiNote.textContent = 'AI analysis failed for some items — rule findings below are still valid.';
+  } else {
+    aiNote.textContent = 'Enhanced with AI summaries and fix drafts.';
+  }
+  toolbar.appendChild(aiNote);
+  body.appendChild(toolbar);
+
+  if ((audit.items ?? []).length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'muted';
+    empty.textContent = 'This audit contains no items.';
+    body.appendChild(empty);
+    return;
+  }
   for (const item of audit.items) {
     const section = document.createElement('div');
     section.innerHTML = `<h3>${escapeHtml(item.title)} <span class="score ${scoreClass(item.score)}">${item.score}</span></h3>
@@ -188,12 +223,7 @@ async function sendChat(message) {
       await pollJob(reply.jobId, state.lastAction);
     }
     if (reply.audits) {
-      showList(
-        'Audit history',
-        reply.audits.map(
-          (item) => `#${item.id} ${item.kind} — ${item.status}: ${item.summary ?? ''}`,
-        ),
-      );
+      showHistory(reply.audits);
     }
   } catch (error) {
     addMessage(`Error: ${error.message}`, 'bot');
@@ -205,10 +235,50 @@ function showList(title, lines) {
   document.getElementById('list-title').textContent = title;
   const body = document.getElementById('list-body');
   body.innerHTML = '';
+  if (lines.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'muted';
+    empty.textContent = 'Nothing here yet.';
+    body.appendChild(empty);
+  }
   const list = document.createElement('ul');
   for (const line of lines) {
     const li = document.createElement('li');
     li.textContent = line;
+    list.appendChild(li);
+  }
+  body.appendChild(list);
+  panel.classList.remove('hidden');
+}
+
+async function openAudit(id) {
+  try {
+    const { audit } = await api(`/api/audits/${id}`);
+    renderReport(audit);
+  } catch (error) {
+    addMessage(`Could not open audit: ${error.message}`, 'bot');
+  }
+}
+
+function showHistory(audits) {
+  const panel = document.getElementById('list-panel');
+  document.getElementById('list-title').textContent = 'Audit history (click to open)';
+  const body = document.getElementById('list-body');
+  body.innerHTML = '';
+  if (audits.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'muted';
+    empty.textContent = 'No audits yet. Say "audit all" to run the first one.';
+    body.appendChild(empty);
+  }
+  const list = document.createElement('ul');
+  for (const item of audits) {
+    const li = document.createElement('li');
+    const button = document.createElement('button');
+    button.className = 'secondary linklike';
+    button.textContent = `#${item.id} ${item.kind} — ${item.status}: ${item.summary ?? ''}`;
+    button.addEventListener('click', () => openAudit(item.id));
+    li.appendChild(button);
     list.appendChild(li);
   }
   body.appendChild(list);
@@ -238,7 +308,15 @@ function selectedModel() {
 
 async function loadModels() {
   try {
-    const { models, default: fallback } = await api('/api/models');
+    const { models, default: fallback, configured } = await api('/api/models');
+    const banner = document.getElementById('ai-banner');
+    if (!configured) {
+      banner.textContent =
+        'AI drafts disabled: set GEMINI_API_KEY on the server and restart. Rule audits, scoring, and history work without it.';
+      banner.classList.remove('hidden');
+    } else {
+      banner.classList.add('hidden');
+    }
     const select = document.getElementById('model-select');
     select.innerHTML = '';
     const preferred = state.model || fallback;
@@ -273,10 +351,48 @@ async function refreshMe() {
     document.getElementById('btn-users').classList.toggle('hidden', user.role !== 'admin');
     show('app');
     await loadModels();
+    setupBookmarklet();
+    runDeepLink();
     return true;
   } catch {
     show('login');
     return false;
+  }
+}
+
+function setupBookmarklet() {
+  const code = `javascript:(()=>{const m=location.href.match(/#\\/editor\\/(post|page)\\/([0-9a-f-]{8,})/i);if(!m){alert('Open a Ghost post or page in the editor first, then click this bookmark.');return;}const t=m[1]==='page'?'pages':'posts';window.open('${location.origin}/?audit='+t+':'+m[2],'_blank');})()`;
+  document.getElementById('bookmarklet-link').href = code;
+}
+
+async function runDeepLink() {
+  const params = new URLSearchParams(window.location.search);
+  const audit = params.get('audit');
+  if (!audit) {
+    return;
+  }
+  window.history.replaceState({}, '', window.location.pathname);
+  const match = audit.match(/^(posts|pages):([0-9a-f-]{8,})$/i);
+  if (!match) {
+    addMessage(
+      'That audit link is malformed. Open a Ghost editor and use the bookmark instead.',
+      'bot',
+    );
+    return;
+  }
+  try {
+    const { jobId } = await api('/api/audits', {
+      method: 'POST',
+      body: JSON.stringify({
+        kind: 'single',
+        resourceType: match[1].toLowerCase(),
+        resourceId: match[2],
+      }),
+    });
+    addMessage(`Auditing the linked ${match[1].slice(0, -1)} now.`, 'bot');
+    await pollJob(jobId);
+  } catch (error) {
+    addMessage(`Could not start linked audit: ${error.message}`, 'bot');
   }
 }
 
@@ -323,6 +439,8 @@ document.getElementById('btn-audit-slug').addEventListener('click', () => {
     sendChat(`audit slug/${slug}`);
   }
 });
+
+document.getElementById('btn-drafts').addEventListener('click', () => sendChat('drafts'));
 
 document.getElementById('btn-history').addEventListener('click', () => sendChat('history'));
 

@@ -20,5 +20,7 @@ export const config = {
   adminEmail: required('SEO_ADMIN_EMAIL'),
   adminPassword: required('SEO_ADMIN_PASSWORD'),
   auditCron: required('AUDIT_CRON', '0 3 * * 0'),
+  draftWatch: (required('DRAFT_WATCH', 'true') ?? 'true').toLowerCase() !== 'false',
+  draftAiMinScore: Number(required('DRAFT_AI_MIN_SCORE', 70)),
   sessionDays: 7,
 };

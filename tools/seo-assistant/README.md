@@ -55,9 +55,27 @@ Open the printed port (default 3000) and sign in.
 | SEO_ADMIN_EMAIL     | —                      | Bootstrap admin (first run with empty users table) |
 | SEO_ADMIN_PASSWORD  | —                      | Bootstrap admin password, 12+ characters           |
 | AUDIT_CRON          | `0 3 * * 0`            | Scheduled full audit; empty disables it            |
+| DRAFT_WATCH         | true                   | Also scan unpublished drafts on the schedule       |
+| DRAFT_AI_MIN_SCORE  | 70                     | AI-enrich drafts scoring below this (0 disables)   |
 
 Without GEMINI_API_KEY the rule audits, scoring, history, and approvals all
-work; only AI summaries and drafted copy are unavailable.
+work; only AI summaries and drafted copy are unavailable. Pick the model per
+request in the toolbar dropdown; transient model overloads retry
+automatically.
+
+## Author workflow
+
+Ghost Admin has no plugin system, so auditing from the editor works from the
+outside in:
+
+- **Draft watch**: every scheduled run also scores unpublished drafts
+  (rules only, plus AI drafts for low scorers). Open them anytime with the
+  Draft watch button or by saying `drafts` in chat.
+- **Bookmarklet**: the footer of the chat UI has a draggable bookmark. Click
+  it while editing a Ghost post or page to open the assistant with that item
+  queued for audit (deep link `?audit=posts:<id>` works too).
+- **PDF export**: every report has an Export PDF button using a print
+  stylesheet, so what you see is what the PDF contains.
 
 ## Deploying on Coolify
 

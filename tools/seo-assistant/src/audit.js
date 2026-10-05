@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import db, { normalizeInsert } from './db.js';
+import { config } from './config.js';
 import { analyzeResource } from './rules.js';
 import * as ghost from './ghost.js';
 import * as gemini from './gemini.js';
@@ -97,6 +98,10 @@ export async function runAudit({
       const pages = await ghost.listPages();
       resources.push(...pages.map((resource) => ({ resourceType: 'pages', resource })));
     }
+    if (kind === 'drafts') {
+      job.stage = 'fetching drafts';
+      resources.push(...(await ghost.listDrafts()));
+    }
     job.total = resources.length;
     const useAi = withAi && gemini.isConfigured();
     let resolvedModel = null;
@@ -109,7 +114,8 @@ export async function runAudit({
       job.current = resource.title ?? resource.slug ?? type;
       const analysis = analyzeResource(resource, siteUrl());
       let enrichment = null;
-      if (useAi) {
+      const wantsAi = useAi && (kind !== 'drafts' || analysis.score < config.draftAiMinScore);
+      if (wantsAi) {
         try {
           enrichment = await gemini.enrichAnalysis({
             resource,
@@ -194,4 +200,16 @@ export function getAudit(id) {
 
 export function listFixes(limit = 50) {
   return db.prepare('SELECT * FROM applied_fixes ORDER BY id DESC LIMIT ?').all(limit);
+}
+
+export function formatDigest(items) {
+  if (items.length === 0) {
+    return 'No drafts right now. Nothing needs attention.';
+  }
+  const sorted = [...items].sort((a, b) => a.score - b.score);
+  const lines = sorted.map((item) => {
+    const top = item.findings[0]?.message ?? 'no findings';
+    return `- ${item.title} — score ${item.score}. Worst: ${top}`;
+  });
+  return `Drafts needing attention (${sorted.length}):\n${lines.join('\n')}`;
 }

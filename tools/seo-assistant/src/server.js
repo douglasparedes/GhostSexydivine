@@ -82,8 +82,8 @@ app.post('/api/audits', auth.requireAuth, (req, res) => {
       .json({ error: 'Ghost is not configured. Set GHOST_URL and GHOST_ADMIN_API_KEY.' });
   }
   const { kind, resourceType, resourceId, withAi, model } = req.body ?? {};
-  if (!['posts', 'pages', 'all', 'single'].includes(kind)) {
-    return res.status(400).json({ error: 'kind must be posts, pages, all, or single' });
+  if (!['posts', 'pages', 'all', 'single', 'drafts'].includes(kind)) {
+    return res.status(400).json({ error: 'kind must be posts, pages, all, single, or drafts' });
   }
   if (kind === 'single' && (!resourceType || !resourceId)) {
     return res.status(400).json({ error: 'single audits need resourceType and resourceId' });
@@ -173,7 +173,8 @@ function helpText() {
     '- "audit all" — every post and page',
     '- "audit posts" or "audit pages"',
     '- "audit slug/my-post-slug" — one item by slug',
-    '- "history" — past audit runs',
+    '- "drafts" — check unpublished drafts, cheapest first look before publishing',
+    '- "history" — past audit runs (click any entry to reopen its report)',
     'Each report scores items 0-100, lists rule findings, and proposes fixes you approve one by one. I only ever write fields you approve, and slugs and article bodies are never auto-edited.',
   ].join('\n');
 }
@@ -197,6 +198,12 @@ app.post('/api/chat', auth.requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Message is required' });
   }
   const lower = message.toLowerCase();
+  let requestedModel;
+  try {
+    requestedModel = req.body?.model ? gemini.resolveModel(req.body.model) : undefined;
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
 
   if (/\bhelp\b/.test(lower) || lower === 'hi' || lower === 'hello') {
     return res.json({ reply: helpText(), actions: [] });
@@ -214,6 +221,17 @@ app.post('/api/chat', auth.requireAuth, async (req, res) => {
     );
     return res.json({ reply: `Recent audits:\n${lines.join('\n')}`, audits, actions: [] });
   }
+  if (/\bdrafts?\b/.test(lower)) {
+    const job = audit.createJob('drafts', 'chat');
+    audit
+      .runAudit({ kind: 'drafts', target: 'chat', model: requestedModel, job })
+      .then((finished) => Object.assign(job, finished));
+    return res.json({
+      reply: 'Checking your drafts now. Watch progress below.',
+      jobId: job.id,
+      actions: [],
+    });
+  }
   if (!ghost.isConfigured()) {
     return res.json({
       reply:
@@ -226,12 +244,6 @@ app.post('/api/chat', auth.requireAuth, async (req, res) => {
   const postsMatch = lower.match(/\baudit\s+posts\b/);
   const pagesMatch = lower.match(/\baudit\s+pages\b/);
   const slugMatch = lower.match(/\baudit\s+(?:slug\/)?([a-z0-9][a-z0-9-]*)\b/);
-  let requestedModel;
-  try {
-    requestedModel = req.body?.model ? gemini.resolveModel(req.body.model) : undefined;
-  } catch (error) {
-    return res.status(400).json({ error: error.message });
-  }
   try {
     if (allMatch) {
       const job = audit.createJob('all', 'chat');

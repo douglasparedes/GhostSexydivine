@@ -29,6 +29,19 @@ export function startScheduler() {
     } catch (error) {
       console.log(`Scheduled audit failed: ${error.message}`);
     }
+    if (config.draftWatch) {
+      try {
+        console.log('Starting scheduled draft watch');
+        const job = await runAudit({
+          kind: 'drafts',
+          target: 'scheduled-drafts',
+          withAi: gemini.isConfigured(),
+        });
+        console.log(`Scheduled draft watch finished: ${job.status}`);
+      } catch (error) {
+        console.log(`Scheduled draft watch failed: ${error.message}`);
+      }
+    }
   });
   console.log(`Scheduler enabled (${config.auditCron})`);
 }
