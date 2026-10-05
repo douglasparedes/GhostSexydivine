@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ghost SEO Assistant</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="login-view" class="center hidden">
+  <form id="login-form" class="card">
+    <h1>Ghost SEO Assistant</h1>
+    <p class="muted">Sign in to audit your publication.</p>
+    <label>Email <input type="email" id="login-email" required autocomplete="username"></label>
+    <label>Password <input type="password" id="login-password" required autocomplete="current-password"></label>
+    <button type="submit">Sign in</button>
+    <p id="login-error" class="error"></p>
+  </form>
+</div>
+
+<div id="app-view" class="hidden">
+  <header>
+    <strong>Ghost SEO Assistant</strong>
+    <span id="user-badge" class="muted"></span>
+    <span class="spacer"></span>
+    <button id="btn-history">History</button>
+    <button id="btn-fixes">Applied fixes</button>
+    <button id="btn-users" class="hidden">Users</button>
+    <button id="btn-logout">Sign out</button>
+  </header>
+  <div id="toolbar">
+    <button data-audit="all">Audit all</button>
+    <button data-audit="posts">Audit posts</button>
+    <button data-audit="pages">Audit pages</button>
+    <input id="slug-input" placeholder="post slug for single audit">
+    <button id="btn-audit-slug">Audit slug</button>
+  </div>
+  <main>
+    <section id="chat-panel" class="card">
+      <div id="messages"></div>
+      <form id="chat-form">
+        <input id="chat-input" placeholder='Ask, e.g. "audit all" or "audit slug/hello-world"' autocomplete="off">
+        <button type="submit">Send</button>
+      </form>
+    </section>
+    <section id="report-panel" class="card hidden">
+      <h2 id="report-title"></h2>
+      <div id="report-body"></div>
+    </section>
+    <section id="list-panel" class="card hidden">
+      <h2 id="list-title"></h2>
+      <div id="list-body"></div>
+    </section>
+  </main>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

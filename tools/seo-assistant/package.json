@@ -1,0 +1,28 @@
+{
+  "name": "ghost-seo-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chat assistant that audits Ghost posts and pages for SEO and applies approved fixes via the Admin API.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "test": "node --test \"test/*.test.js\"",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@google/genai": "2.27.0",
+    "@tryghost/admin-api": "1.14.13",
+    "bcryptjs": "3.0.3",
+    "express": "5.2.1",
+    "node-cron": "4.6.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.4",
+    "eslint": "9.39.4",
+    "globals": "17.7.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
