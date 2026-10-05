@@ -12,7 +12,17 @@ function siteUrl() {
 
 export function createJob(kind, target) {
   const id = crypto.randomBytes(8).toString('hex');
-  const job = { id, kind, target, status: 'running', createdAt: new Date().toISOString() };
+  const job = {
+    id,
+    kind,
+    target,
+    status: 'running',
+    stage: 'starting',
+    processed: 0,
+    total: null,
+    current: null,
+    createdAt: new Date().toISOString(),
+  };
   jobs.set(id, job);
   return job;
 }
@@ -57,8 +67,18 @@ function storeItem(auditId, resourceType, resource, analysis, enrichment) {
   };
 }
 
-export async function runAudit({ kind, target, resourceType, resourceId, withAi = true }) {
-  const job = createJob(kind, target);
+export async function runAudit({
+  kind,
+  target,
+  resourceType,
+  resourceId,
+  withAi = true,
+  model,
+  job: existingJob = null,
+}) {
+  const job = existingJob ?? createJob(kind, target);
+  job.status = 'running';
+  job.stage = 'fetching from Ghost';
   const auditId = storeAudit(kind, target);
   job.auditId = auditId;
   const items = [];
@@ -68,20 +88,35 @@ export async function runAudit({ kind, target, resourceType, resourceId, withAi 
       const resource = await ghost.readResource(resourceType, resourceId);
       resources = [{ resourceType, resource }];
     } else if (kind === 'posts' || kind === 'all') {
+      job.stage = 'fetching posts';
       const posts = await ghost.listPosts();
       resources.push(...posts.map((resource) => ({ resourceType: 'posts', resource })));
     }
     if (kind === 'pages' || kind === 'all') {
+      job.stage = 'fetching pages';
       const pages = await ghost.listPages();
       resources.push(...pages.map((resource) => ({ resourceType: 'pages', resource })));
     }
+    job.total = resources.length;
     const useAi = withAi && gemini.isConfigured();
+    let resolvedModel = null;
+    if (useAi) {
+      resolvedModel = gemini.resolveModel(model);
+      job.model = resolvedModel;
+    }
     for (const { resourceType: type, resource } of resources) {
+      job.stage = 'analyzing';
+      job.current = resource.title ?? resource.slug ?? type;
       const analysis = analyzeResource(resource, siteUrl());
       let enrichment = null;
       if (useAi) {
         try {
-          enrichment = await gemini.enrichAnalysis({ resource, resourceType: type, analysis });
+          enrichment = await gemini.enrichAnalysis({
+            resource,
+            resourceType: type,
+            analysis,
+            model: resolvedModel,
+          });
         } catch (error) {
           enrichment = {
             summary: `AI analysis failed: ${error.message}`,
@@ -91,6 +126,7 @@ export async function runAudit({ kind, target, resourceType, resourceId, withAi 
         }
       }
       items.push(storeItem(auditId, type, resource, analysis, enrichment));
+      job.processed = items.length;
     }
     const average =
       items.length === 0

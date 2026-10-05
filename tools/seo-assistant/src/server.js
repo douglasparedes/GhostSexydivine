@@ -81,17 +81,31 @@ app.post('/api/audits', auth.requireAuth, (req, res) => {
       .status(503)
       .json({ error: 'Ghost is not configured. Set GHOST_URL and GHOST_ADMIN_API_KEY.' });
   }
-  const { kind, resourceType, resourceId, withAi } = req.body ?? {};
+  const { kind, resourceType, resourceId, withAi, model } = req.body ?? {};
   if (!['posts', 'pages', 'all', 'single'].includes(kind)) {
     return res.status(400).json({ error: 'kind must be posts, pages, all, or single' });
   }
   if (kind === 'single' && (!resourceType || !resourceId)) {
     return res.status(400).json({ error: 'single audits need resourceType and resourceId' });
   }
+  let resolvedModel;
+  try {
+    resolvedModel = model ? gemini.resolveModel(model) : undefined;
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
   const target = kind === 'single' ? `${resourceType}:${resourceId}` : kind;
   const job = audit.createJob(kind, target);
   audit
-    .runAudit({ kind, target, resourceType, resourceId, withAi: withAi !== false })
+    .runAudit({
+      kind,
+      target,
+      resourceType,
+      resourceId,
+      withAi: withAi !== false,
+      model: resolvedModel,
+      job,
+    })
     .then((finished) => {
       Object.assign(job, finished);
     })
@@ -99,6 +113,14 @@ app.post('/api/audits', auth.requireAuth, (req, res) => {
       Object.assign(job, { status: 'failed', error: error.message });
     });
   return res.status(202).json({ jobId: job.id });
+});
+
+app.get('/api/models', auth.requireAuth, (req, res) => {
+  return res.json({
+    models: gemini.MODELS,
+    default: gemini.resolveModel(undefined),
+    configured: gemini.isConfigured(),
+  });
 });
 
 app.get('/api/jobs/:id', auth.requireAuth, (req, res) => {
@@ -204,15 +226,20 @@ app.post('/api/chat', auth.requireAuth, async (req, res) => {
   const postsMatch = lower.match(/\baudit\s+posts\b/);
   const pagesMatch = lower.match(/\baudit\s+pages\b/);
   const slugMatch = lower.match(/\baudit\s+(?:slug\/)?([a-z0-9][a-z0-9-]*)\b/);
+  let requestedModel;
+  try {
+    requestedModel = req.body?.model ? gemini.resolveModel(req.body.model) : undefined;
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
   try {
     if (allMatch) {
       const job = audit.createJob('all', 'chat');
       audit
-        .runAudit({ kind: 'all', target: 'chat' })
+        .runAudit({ kind: 'all', target: 'chat', model: requestedModel, job })
         .then((finished) => Object.assign(job, finished));
       return res.json({
-        reply:
-          'Full audit started (posts and pages). I will report back when it finishes — poll the job for progress.',
+        reply: `Full audit started (posts and pages)${requestedModel ? ` with ${requestedModel}` : ''}. Watch progress below — I will post the report when it finishes.`,
         jobId: job.id,
         actions: [],
       });
@@ -220,9 +247,11 @@ app.post('/api/chat', auth.requireAuth, async (req, res) => {
     if (postsMatch || pagesMatch) {
       const kind = postsMatch ? 'posts' : 'pages';
       const job = audit.createJob(kind, 'chat');
-      audit.runAudit({ kind, target: 'chat' }).then((finished) => Object.assign(job, finished));
+      audit
+        .runAudit({ kind, target: 'chat', model: requestedModel, job })
+        .then((finished) => Object.assign(job, finished));
       return res.json({
-        reply: `Audit of ${kind} started. Poll the job for progress.`,
+        reply: `Audit of ${kind} started${requestedModel ? ` with ${requestedModel}` : ''}. Watch progress below.`,
         jobId: job.id,
         actions: [],
       });
@@ -242,10 +271,12 @@ app.post('/api/chat', auth.requireAuth, async (req, res) => {
           target: found.title,
           resourceType: found.resourceType,
           resourceId: found.resourceId,
+          model: requestedModel,
+          job,
         })
         .then((finished) => Object.assign(job, finished));
       return res.json({
-        reply: `Auditing "${found.title}" now. Poll the job for the report.`,
+        reply: `Auditing "${found.title}" now${requestedModel ? ` with ${requestedModel}` : ''}. Watch progress below.`,
         jobId: job.id,
         actions: [],
       });
@@ -265,7 +296,13 @@ app.post('/api/chat', auth.requireAuth, async (req, res) => {
     const context =
       recent.map((item) => `#${item.id} ${item.kind}: ${item.summary ?? item.status}`).join('\n') ||
       'No audits yet.';
-    const reply = await gemini.askQuestion(message, context);
+    let freeformModel;
+    try {
+      freeformModel = req.body?.model ? gemini.resolveModel(req.body.model) : undefined;
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+    const reply = await gemini.askQuestion(message, context, { model: freeformModel });
     return res.json({ reply, actions: [] });
   } catch (error) {
     return res.status(500).json({ error: error.message });

@@ -1,4 +1,9 @@
-const state = { user: null, polling: null };
+const state = {
+  user: null,
+  polling: null,
+  model: localStorage.getItem('seo-model') ?? '',
+  lastAction: null,
+};
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -25,6 +30,7 @@ function addMessage(text, who) {
   div.textContent = text;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
+  return div;
 }
 
 function scoreClass(score) {
@@ -120,42 +126,66 @@ function renderReport(audit) {
   }
 }
 
-async function pollJob(jobId) {
+async function pollJob(jobId, retryFn = null) {
   if (state.polling) {
     clearInterval(state.polling);
   }
-  addMessage('Working on it — I will post the report here when it finishes.', 'bot');
-  state.polling = setInterval(async () => {
+  const progress = addMessage('Starting…', 'bot progress');
+  const startedAt = Date.now();
+  const tick = async () => {
+    const elapsed = Math.round((Date.now() - startedAt) / 1000);
     try {
       const { job } = await api(`/api/jobs/${jobId}`);
       if (job.status === 'done') {
         clearInterval(state.polling);
         state.polling = null;
+        progress.textContent = `Done in ${elapsed}s. Loading report…`;
         const { audit } = await api(`/api/audits/${job.auditId}`);
-        addMessage(`Audit finished: ${audit.summary}`, 'bot');
+        progress.textContent = `Done in ${elapsed}s: ${audit.summary}`;
         renderReport(audit);
       } else if (job.status === 'failed') {
         clearInterval(state.polling);
         state.polling = null;
-        addMessage(`Audit failed: ${job.error ?? 'unknown error'}`, 'bot');
+        progress.textContent = `Failed after ${elapsed}s: ${job.error ?? 'unknown error'}`;
+        if (retryFn) {
+          const button = document.createElement('button');
+          button.textContent = 'Retry';
+          button.addEventListener('click', () => {
+            progress.remove();
+            retryFn();
+          });
+          progress.appendChild(document.createElement('br'));
+          progress.appendChild(button);
+        }
+      } else {
+        const count = job.total != null ? ` (${job.processed ?? 0}/${job.total})` : '';
+        const current = job.current ? ` — ${job.current}` : '';
+        const model = job.model ? ` [${job.model}]` : '';
+        progress.textContent = `Working… ${job.stage ?? 'running'}${count}${current}${model} (${elapsed}s)`;
       }
     } catch (error) {
       clearInterval(state.polling);
       state.polling = null;
-      addMessage(`Could not poll job: ${error.message}`, 'bot');
+      progress.textContent = `Lost track of the job: ${error.message}`;
     }
-  }, 2000);
+  };
+  await tick();
+  state.polling = setInterval(tick, 2000);
 }
 
 async function sendChat(message) {
   addMessage(message, 'user');
+  state.lastAction = () => sendChat(message);
   try {
-    const reply = await api('/api/chat', { method: 'POST', body: JSON.stringify({ message }) });
+    const reply = await api('/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, model: selectedModel() }),
+    });
     if (reply.reply) {
       addMessage(reply.reply, 'bot');
     }
     if (reply.jobId) {
-      await pollJob(reply.jobId);
+      await pollJob(reply.jobId, state.lastAction);
     }
     if (reply.audits) {
       showList(
@@ -186,14 +216,52 @@ function showList(title, lines) {
 }
 
 async function startAudit(kind, extra = {}) {
+  const payload = { kind, ...extra };
+  if (selectedModel()) {
+    payload.model = selectedModel();
+  }
+  state.lastAction = () => startAudit(kind, extra);
   try {
     const { jobId } = await api('/api/audits', {
       method: 'POST',
-      body: JSON.stringify({ kind, ...extra }),
+      body: JSON.stringify(payload),
     });
-    await pollJob(jobId);
+    await pollJob(jobId, state.lastAction);
   } catch (error) {
     addMessage(`Could not start audit: ${error.message}`, 'bot');
+  }
+}
+
+function selectedModel() {
+  return state.model || '';
+}
+
+async function loadModels() {
+  try {
+    const { models, default: fallback } = await api('/api/models');
+    const select = document.getElementById('model-select');
+    select.innerHTML = '';
+    const preferred = state.model || fallback;
+    for (const model of models) {
+      const option = document.createElement('option');
+      option.value = model.id;
+      option.textContent = `${model.label} — ${model.hint}`;
+      if (model.id === preferred) {
+        option.selected = true;
+      }
+      select.appendChild(option);
+    }
+    state.model = select.value;
+    select.addEventListener('change', () => {
+      state.model = select.value;
+      localStorage.setItem('seo-model', select.value);
+      addMessage(
+        `Model set to ${select.selectedOptions[0].textContent}. It applies to new audits and answers.`,
+        'bot',
+      );
+    });
+  } catch (error) {
+    addMessage(`Could not load models: ${error.message}`, 'bot');
   }
 }
 
@@ -204,6 +272,7 @@ async function refreshMe() {
     document.getElementById('user-badge').textContent = `${user.email} (${user.role})`;
     document.getElementById('btn-users').classList.toggle('hidden', user.role !== 'admin');
     show('app');
+    await loadModels();
     return true;
   } catch {
     show('login');
