@@ -7,23 +7,12 @@ import * as ghost from './ghost.js';
 import * as gemini from './gemini.js';
 import * as audit from './audit.js';
 import { startScheduler } from './scheduler.js';
+import { parseCookies } from './middleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
-
-function parseCookies(req) {
-  const header = req.headers.cookie ?? '';
-  const cookies = {};
-  for (const part of header.split(';')) {
-    const index = part.indexOf('=');
-    if (index > 0) {
-      cookies[part.slice(0, index).trim()] = decodeURIComponent(part.slice(index + 1).trim());
-    }
-  }
-  req.cookies = cookies;
-}
 
 app.use(parseCookies);
 app.use(express.static(path.join(__dirname, '..', 'public')));
