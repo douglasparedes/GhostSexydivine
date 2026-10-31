@@ -21,6 +21,11 @@
 #   MYSQL_USER=ghost
 #   MYSQL_PASSWORD=<random, different from root>
 #   MAIL_HOST, MAIL_PORT, MAIL_USER, MAIL_PASS, MAIL_FROM
+#   TINYBIRD_API_URL=https://api.tinybird.co
+#   TINYBIRD_WORKSPACE_ID=<workspace uuid>
+#   TINYBIRD_ADMIN_TOKEN=<workspace admin token>
+#   TINYBIRD_TRACKER_TOKEN=<tracker token>
+#   TINYBIRD_TRACKER_ENDPOINT=https://analytics.example.com/api/v1/page_hit
 #
 # Newsletters/bulk mail always need Mailgun and are configured later in
 # Admin → Settings → Email newsletter (stored in the DB, not here).
@@ -49,6 +54,13 @@ services:
       mail__options__auth__user: ${MAIL_USER:-}
       mail__options__auth__pass: ${MAIL_PASS:-}
       mail__from: ${MAIL_FROM:-}
+      # Web analytics (Tinybird). The admin token is the JWT signing key;
+      # the tracker token stays server-side in traffic-analytics.
+      tinybird__tracker__endpoint: ${TINYBIRD_TRACKER_ENDPOINT:?Set TINYBIRD_TRACKER_ENDPOINT in Coolify}
+      tinybird__adminToken: ${TINYBIRD_ADMIN_TOKEN:?Set TINYBIRD_ADMIN_TOKEN in Coolify}
+      tinybird__workspaceId: ${TINYBIRD_WORKSPACE_ID:?Set TINYBIRD_WORKSPACE_ID in Coolify}
+      tinybird__tracker__datasource: analytics_events
+      tinybird__stats__endpoint: ${TINYBIRD_API_URL:-https://api.tinybird.co}
     volumes:
       - ghost-content:/home/ghost/content
     depends_on:
@@ -97,6 +109,23 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  # Tinybird ingestion proxy. Ghost's tracker posts here; the proxy adds the
+  # tracker token and forwards to Tinybird, so the browser never sees it.
+  traffic-analytics:
+    image: ghost/traffic-analytics:1.0.513@sha256:a86580bb762e2cd68b9cba39903764d21309776f3739e7f0764fbcaeb1bf0046
+    restart: unless-stopped
+    expose:
+      - '3000'
+    environment:
+      NODE_ENV: production
+      PROXY_TARGET: ${TINYBIRD_API_URL:-https://api.tinybird.co}/v0/events
+      SALT_STORE_TYPE: file
+      SALT_STORE_FILE_PATH: /data/salts.json
+      TINYBIRD_TRACKER_TOKEN: ${TINYBIRD_TRACKER_TOKEN:?Set TINYBIRD_TRACKER_TOKEN in Coolify}
+    volumes:
+      - traffic-analytics-data:/data
+
 volumes:
   ghost-content:
   mysql-data:
+  traffic-analytics-data:
