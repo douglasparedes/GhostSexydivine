@@ -25,6 +25,16 @@ env:
 jobs:
   build-admin:
     name: Build admin bundle
+    # Hermetic builds: never read Nx Cloud remote cache here. A poisoned
+    # remote entry (koenig-lexical UMD compiled with dev JSX, requiring
+    # react/jsx-dev-runtime, which the Ember editor cannot provide) was
+    # restored via "Remote Cache Hit" and shipped a broken post editor
+    # ("Cannot read properties of undefined (reading 'jsxDEV')"). The
+    # nx.json build inputs now also include NODE_ENV so dev and prod
+    # outputs can never share a cache entry again.
+    env:
+      NODE_ENV: production
+      NX_OFFLINE: 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

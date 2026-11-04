@@ -19,6 +19,9 @@
         {
           "env": "GHOST_CDN_URL"
         },
+        {
+          "env": "NODE_ENV"
+        },
         "default",
         "^default"
       ],
